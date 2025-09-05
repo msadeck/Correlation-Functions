@@ -9,6 +9,25 @@ from scipy import interpolate
 import time
 from scipy.sparse import lil_matrix
 
+def count_occupied_pairs(A):
+    count = 0
+    n = A.shape[0]
+    for x in range(n):
+        for y in range(n):
+            if A[x, y] == 1:
+                if x < n - 1 and A[x + 1, y] == 1:
+                    count += 1
+                if y < n - 1 and A[x, y + 1] == 1:
+                    count += 1
+    return count
+
+def compute_F(A):
+    X = A.shape[0]
+    chi = 2 * X * (X - 1)
+    C1 = np.sum(A == 1)
+    C2 = count_occupied_pairs(A)
+    return (C2 * X**4) / (chi * C1**2) if C1 > 0 else 0
+
 def compute_derivative(t, y):
     """
     Compute dy/dt using finite differences:
@@ -120,153 +139,119 @@ def ODE_sim(q,RHS,t,IC,description=None):
     return y
 
 
-def BDM_ABM(rp,rd,rm,scale,T_end=50.0):
-    #rp is proliferation rate, rd is death rate, rm is migration rate and f is the factor at which those variables change depending on the neighborhood occupancy
-    
-    #number of lattice sites
-    n = 120
+import numpy as np
+from scipy import interpolate
+import numpy as np
+from scipy import interpolate
+
+def BDM_ABM(rp, rd, rm, scale, initial_density, T_end):
+    import numpy as np
+    from scipy import interpolate
+    from scipy.sparse import csr_matrix
+    from tqdm import tqdm
+
+    n = 120  # lattice size
     A = np.zeros((n**2,))
 
-    #initial proportions of occupied sires
-    A0 = 0.05
-    
-    #randomly place susceptible (1), infected (2), and recovered (3) agents
-    A_num = int(np.ceil(A0*len(A)))
+    # Set initial density
+    A0 = initial_density
+    A_num = int(np.ceil(A0 * len(A)))
     A[:A_num] = 1
-    #shuffle up
-    A = A[np.random.permutation(n**2)]
-    #make square
-    A = A.reshape(n,n)
+    np.random.shuffle(A)
+    A = A.reshape(n, n)
 
-    #count number of susceptible, infected, and recovered agents.
-    A_num = np.sum(A==1)
-
-    #nondimensionalized time
-    T_final = T_end/(rp-rd)
-
-    #initialize time
+    # Non-dimensionalized time
+    T_final = T_end / (rp - rd)
     t = 0
 
-    #track time, agent proportions, and snapshots of ABM in these lists
+    # Tracking
     t_list = [t]
     A_list = [A_num]
-    plot_list = [A]
-    
-    #number of snapshots saved
+    plot_list = [np.copy(A)]
+    density_profiles = [np.sum(A == 1, axis=0) / n]
     image_count = 1
+    F_list = [compute_F(A)]
 
+    
+    pbar = tqdm(total=50, desc="Running ABM", leave=True)
 
     while t_list[-1] < T_final:
-        # Select Random agent
-        
-        agent_loc = np.where(A!=0)
-        agent_ind = np.random.permutation(len(agent_loc[0]))[0]
-        loc = (agent_loc[0][agent_ind],agent_loc[1][agent_ind])
-    
-        mask = local_neighborhood_mask((n,n,),loc,distance=1)
-        neigh_den = mask.multiply(A)
-        result = np.sum(neigh_den==1)
-       
-        if result >= 4:
-            rmf=scale*rm
-            rpf=(1/scale)*rp
-    
+        agent_loc = np.where(A != 0)
+        agent_ind = np.random.randint(len(agent_loc[0]))
+        loc = (agent_loc[0][agent_ind], agent_loc[1][agent_ind])
+
+        # Local density-based rate scaling
+        mask = local_neighborhood_mask((n, n), loc, distance=1)
+        neigh = mask.multiply(A)
+        local_density = np.sum(neigh == 1)
+
+        if local_density >= 3:
+            rmf = scale * rm
+            rpf = rp / scale
         else:
-            rmf=(1/scale)*rm
-            rpf=scale*rp
-           
-            
-        a = rmf*A_num + rpf*A_num + rd*A_num
-        tau = -np.log(np.random.uniform())/a
+            rmf = rm / scale
+            rpf = scale * rp
+
+        a = rmf * A_num + rpf * A_num + rd * A_num
+        tau = -np.log(np.random.uniform()) / a
         t += tau
+        action = a * np.random.uniform()
 
-        Action = a*np.random.uniform()
+        # Movement
+        if action <= rmf * A_num:
+            dir = np.random.randint(1, 5)
+            x, y = loc
+            if dir == 1 and x < n - 1 and A[x + 1, y] == 0:
+                A[x + 1, y], A[x, y] = A[x, y], 0
+            elif dir == 2 and x > 0 and A[x - 1, y] == 0:
+                A[x - 1, y], A[x, y] = A[x, y], 0
+            elif dir == 3 and y < n - 1 and A[x, y + 1] == 0:
+                A[x, y + 1], A[x, y] = A[x, y], 0
+            elif dir == 4 and y > 0 and A[x, y - 1] == 0:
+                A[x, y - 1], A[x, y] = A[x, y], 0
 
-        if Action <= rmf*(A_num):
-            #agent movement
-            
-            #determine status
-            agent_state = A[loc]
+        # Proliferation
+        elif action <= rmf * A_num + rpf * A_num:
+            dir = np.random.randint(1, 5)
+            x, y = loc
+            if dir == 1 and x < n - 1 and A[x + 1, y] == 0:
+                A[x + 1, y] = 1
+            elif dir == 2 and x > 0 and A[x - 1, y] == 0:
+                A[x - 1, y] = 1
+            elif dir == 3 and y < n - 1 and A[x, y + 1] == 0:
+                A[x, y + 1] = 1
+            elif dir == 4 and y > 0 and A[x, y - 1] == 0:
+                A[x, y - 1] = 1
 
-            ### Determine direction
-            dir_select = np.ceil(np.random.uniform(high=4.0))
-
-            #move right
-            if dir_select == 1 and loc[0]<n-1:
-                if A[(loc[0]+1,loc[1])] == 0:
-                    A[(loc[0]+1,loc[1])] = agent_state
-                    A[loc] = 0
-            #move left
-            elif dir_select == 2 and loc[0]>0:
-                if A[(loc[0]-1,loc[1])] == 0:
-                    A[(loc[0]-1,loc[1])] = agent_state
-                    A[loc] = 0
-            #move up
-            elif dir_select == 3 and loc[1]<n-1:
-                if A[(loc[0],loc[1]+1)] == 0:
-                    A[(loc[0],loc[1]+1)] = agent_state
-                    A[loc] = 0
-
-            #move down                    
-            elif dir_select == 4 and loc[1]>0:
-                if A[(loc[0],loc[1]-1)] == 0:
-                    A[(loc[0],loc[1]-1)] = agent_state
-                    A[loc] = 0
-
-        elif (Action <= rmf*(A_num) + rpf*A_num):
-            #proliferation event
-            
-            ### Determine direction
-            dir_select = np.ceil(np.random.uniform(high=4.0))
-
-            #proliferate right
-            if dir_select == 1 and loc[0]<n-1:
-                if A[(loc[0]+1,loc[1])] == 0:
-                    A[(loc[0]+1,loc[1])] = 1
-
-            #proliferate left
-            elif dir_select == 2 and loc[0]>0:
-                if A[(loc[0]-1,loc[1])] == 0:
-                    A[(loc[0]-1,loc[1])] = 1
-
-            #proliferate up        
-            elif dir_select == 3 and loc[1]<n-1:
-                if A[(loc[0],loc[1]+1)] == 0:
-                    A[(loc[0],loc[1]+1)] = 1
-
-            #proliferate down
-            elif dir_select == 4 and loc[1]>0:
-                if A[(loc[0],loc[1]-1)] == 0:
-                    A[(loc[0],loc[1]-1)] = 1
-
-        elif (Action <= rmf*(A_num) + rpf*A_num + rd*A_num):
-            #death event
-            
-            
+        # Death
+        else:
             A[loc] = 0
 
-        #count number of susceptible, infected, recovered agents
-        A_num = np.sum(A==1)
-        
-        #append information to lists
+        # Update tracking
+        A_num = np.sum(A == 1)
         t_list.append(t)
         A_list.append(A_num)
-        
-        #sometimes save ABM snapshot
-        if len(t_list) == 2:
+        density_profiles.append(np.sum(A == 1, axis=0) / n)
+        F_list.append(compute_F(A))
+
+        if len(t_list) == 2 or (t_list[-2] < image_count * T_final / 50 <= t_list[-1]):
             plot_list.append(np.copy(A))
-            image_count+=1
-        elif (t_list[-2] < image_count*T_final/50 and t_list[-1] >= image_count*T_final/50): 
-            plot_list.append(np.copy(A))
-            image_count+=1
+            image_count += 1
+            pbar.update(1)
 
-    #interpolation to equispace grid
-    t_out = np.linspace(0,T_final,100)
+    pbar.close()
 
-    f = interpolate.interp1d(t_list,A_list)
-    A_out = f(t_out)
+    # Interpolate output
+    t_out = np.linspace(0, T_final, 100)
+    F_out = interpolate.interp1d(t_list, F_list)(t_out)
+    A_out = interpolate.interp1d(t_list, A_list)(t_out)
+    density_profiles = np.array(density_profiles)
+    interp_profiles = np.array([
+        np.interp(t_out, t_list, density_profiles[:, j])
+        for j in range(density_profiles.shape[1])
+    ]).T
 
-    return A_out,t_out,plot_list
+    return A_out, t_out, plot_list, interp_profiles, F_out
 
 
 def SIR_ABM(ri,rr,rm,T_end=5.0):
