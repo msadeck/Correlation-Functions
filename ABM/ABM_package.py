@@ -170,7 +170,7 @@ def BDM_ABM(rp, rd, rm, scale, initial_density, T_end):
     plot_list = [np.copy(A)]
     density_profiles = [np.sum(A == 1, axis=0) / n]
     image_count = 1
-    F_list = []
+   #F_list = []
 
     
     pbar = tqdm(total=50, desc="Running ABM", leave=True)
@@ -232,7 +232,7 @@ def BDM_ABM(rp, rd, rm, scale, initial_density, T_end):
         t_list.append(t)
         A_list.append(A_num)
         density_profiles.append(np.sum(A == 1, axis=0) / n)
-        F_list.append(compute_F(A))
+        #F_list.append(compute_F(A))
 
         if len(t_list) == 2 or (t_list[-2] < image_count * T_final / 50 <= t_list[-1]):
             plot_list.append(np.copy(A))
@@ -243,7 +243,7 @@ def BDM_ABM(rp, rd, rm, scale, initial_density, T_end):
 
     # Interpolate output
     t_out = np.linspace(0, T_final, 100)
-    F_out = interpolate.interp1d(t_list, F_list)(t_out)
+    #F_out = interpolate.interp1d(t_list, F_list)(t_out)
     A_out = interpolate.interp1d(t_list, A_list)(t_out)
     density_profiles = np.array(density_profiles)
     interp_profiles = np.array([
@@ -251,7 +251,7 @@ def BDM_ABM(rp, rd, rm, scale, initial_density, T_end):
         for j in range(density_profiles.shape[1])
     ]).T
 
-    return A_out, t_out, plot_list, interp_profiles, F_out
+    return A_out, t_out, plot_list, interp_profiles
 
 
 def SIR_ABM(ri,rr,rm,T_end=5.0):
