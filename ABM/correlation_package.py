@@ -8,6 +8,8 @@ import matplotlib as mpl
 from scipy import interpolate
 import time
 from scipy.sparse import lil_matrix
+from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import KDTree
 
 def count_occupied_pairs(A):
     count = 0
@@ -58,3 +60,108 @@ def compute_derivative(t, y):
     dydt[-1] = (y[-1] - y[-2]) / (t[-1] - t[-2])
 
     return dydt
+
+
+def counts_matrix_for_snapshot_unordered(A, N, radius):
+    pos = {p: np.argwhere(A == p) for p in range(N)}
+    trees = {p: KDTree(pos[p]) if len(pos[p])>0 else None for p in range(N)}
+    total = np.zeros((N, N), dtype=float)
+    avg   = np.zeros((N, N), dtype=float)
+
+    for i in range(N):
+        Xi = pos[i]
+        ni = len(Xi)
+        if ni == 0:
+            total[i,:] = 0
+            avg[i,:] = np.nan
+            continue
+        for j in range(i, N):  # only upper triangle
+            if len(pos[j]) == 0:
+                total[i,j] = total[j,i] = 0
+                avg[i,j] = avg[j,i] = 0.0
+                continue
+
+            neigh_idx = trees[j].query_radius(Xi, r=radius)
+            counts_per_i = np.array([len(idxs) for idxs in neigh_idx])
+
+            if i == j:
+                # subtract self-counts
+                counts_per_i = counts_per_i - 1
+                counts_per_i[counts_per_i < 0] = 0
+                # each (i,i) edge counted twice → divide by 2
+                total[i,i] = counts_per_i.sum() / 2
+                avg[i,i]   = counts_per_i.mean()
+            else:
+                # off-diagonal: fill both (i,j) and (j,i)
+                total[i,j] = counts_per_i.sum()
+                avg[i,j]   = counts_per_i.mean()
+
+                # symmetric counts (from j’s perspective)
+                neigh_idx_j = trees[i].query_radius(pos[j], r=radius)
+                counts_per_j = np.array([len(idxs) for idxs in neigh_idx_j])
+                total[j,i] = counts_per_j.sum()
+                avg[j,i]   = counts_per_j.mean()
+    return total, avg
+
+
+def correlation_matrix_for_snapshot_unordered(A, N, radius, global_normalization=False):
+    """
+    Compute correlation matrix for a single snapshot using unordered neighbor counts.
+
+    Parameters:
+    - A: 2D array of phenotypes
+    - N: number of phenotypes
+    - radius: neighborhood radius
+    - global_normalization: if True, normalize P_joint over all possible site pairs (n*(n-1))
+                            if False, normalize over total neighbor counts (default)
+
+    Returns:
+    - corr: N x N correlation matrix
+    """
+    # Use the unordered counts function
+    total, avg = counts_matrix_for_snapshot_unordered(A, N, radius)
+    
+    n_sites = A.size
+    P = np.array([np.sum(A == p) / n_sites for p in range(N)])  # marginal probabilities
+
+    # Determine joint probability normalization
+    if global_normalization:
+        total_pairs = n_sites * (n_sites - 1)  # all possible site pairs
+    else:
+        total_pairs = total.sum()  # only observed neighbor pairs
+
+    if total_pairs == 0:
+        return np.full((N, N), np.nan)  # avoid div0
+
+    P_joint = total / total_pairs
+
+    # Compute correlation matrix
+    corr = np.zeros((N, N))
+    for i in range(N):
+        for j in range(N):
+            if P[i] > 0 and P[j] > 0:
+                corr[i,j] = P_joint[i,j] / (P[i] * P[j])
+            else:
+                corr[i,j] = np.nan
+
+    return corr
+
+def correlation_time_series_unordered(A_series, N, radius, global_normalization=False):
+    """
+    Compute correlation coefficients over time using unordered counts.
+    Returns a dictionary mapping (i,j) -> array of length T.
+    """
+    T = len(A_series)
+    corr_dict = {(i,j): np.zeros(T) for i in range(N) for j in range(i, N)}
+
+    for t in range(T):
+        corr_matrix = correlation_matrix_for_snapshot_unordered(
+            A_series[t], N, radius, global_normalization=global_normalization
+        )
+        for i in range(N):
+            for j in range(i, N):
+                corr_dict[(i,j)][t] = corr_matrix[i,j]
+
+    return corr_dict
+
+

@@ -8,6 +8,7 @@ import matplotlib as mpl
 from scipy import interpolate
 import time
 from scipy.sparse import lil_matrix
+from sklearn.neighbors import NearestNeighbors
 
 def count_occupied_pairs(A):
     count = 0
