@@ -62,7 +62,7 @@ def compute_derivative(t, y):
     return dydt
 
 
-def counts_matrix_for_snapshot_unordered(A, N, radius):
+def counts_matrix(A, N, radius):
     pos = {p: np.argwhere(A == p) for p in range(N)}
     trees = {p: KDTree(pos[p]) if len(pos[p])>0 else None for p in range(N)}
     total = np.zeros((N, N), dtype=float)
@@ -121,12 +121,12 @@ def correlation_matrix_for_snapshot_unordered(A, N, radius, global_normalization
     # Use the unordered counts function
     total, avg = counts_matrix_for_snapshot_unordered(A, N, radius)
     
-    n_sites = A.size
-    P = np.array([np.sum(A == p) / n_sites for p in range(N)])  # marginal probabilities
+    n_sites = A.shape[0]
+    P = np.array([np.sum(A == p) / n_sites**2 for p in range(N)])  # marginal probabilities
 
     # Determine joint probability normalization
     if global_normalization:
-        total_pairs = n_sites * (n_sites - 1)  # all possible site pairs
+        total_pairs = 2*(n_sites * (n_sites - 1))# all possible site pairs
     else:
         total_pairs = total.sum()  # only observed neighbor pairs
 
