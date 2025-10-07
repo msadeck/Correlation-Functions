@@ -119,7 +119,7 @@ def correlation_matrix_for_snapshot_unordered(A, N, radius, global_normalization
     - corr: N x N correlation matrix
     """
     # Use the unordered counts function
-    total, avg = counts_matrix_for_snapshot_unordered(A, N, radius)
+    total, avg = counts_matrix(A, N, radius)
     
     n_sites = A.shape[0]
     P = np.array([np.sum(A == p) / n_sites**2 for p in range(N)])  # marginal probabilities
