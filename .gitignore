@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Large data files (>50MB, exceeds GitHub limits)
+data/processed_coculture/
+data/processed_monoculture/
+VivariumData/data_export.pkl
+VivariumData/*/tumor_plot.csv
+
+# Large media
+*.mp4
