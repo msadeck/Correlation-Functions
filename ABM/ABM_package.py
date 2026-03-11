@@ -438,3 +438,4 @@ def ABM_depict(A_list):
     im = ax.matshow(A_list[-1],cmap=cmap)
     fig.colorbar(im,ax=ax)
     
+    
